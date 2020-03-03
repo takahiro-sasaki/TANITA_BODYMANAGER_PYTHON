@@ -19,6 +19,8 @@ parser.add_argument('-i', '--items', metavar='I', nargs='+',
                     default=['体重(kg)', '全身体脂肪率(％)', '全身筋肉量(kg)', '推定骨量(kg)', '基礎代謝量(kcal／日)', '体水分率(％)'], 
                     help='items to be output (default = \'体重(kg)\', \'全身体脂肪率(％)\', \'全身筋肉量(kg)\', \'推定骨量(kg)\', \'基礎代謝量(kcal／日)\', \'体水分率(％)\' ; other possible options are  \'身長(cm)\', \'BMI\', \'右腕(皮下)脂肪率(％)\', \'左腕(皮下)脂肪率(％)\', \'右足(皮下)脂肪率(％)\', \'左足(皮下)脂肪率(％)\', \'体幹部脂肪率(％)\', \'右腕筋肉量(kg)\', \'左腕筋肉量(kg)\', \'右足筋肉量(kg)\', \'左足筋肉量(kg)\', \'体幹部筋肉量(kg)\', \'内臓脂肪(レベル)\', \'体内年齢(才)\') ; or \'none\' ')
 
+parser.add_argument('--no_errorbars', help='if you don\'t need error bars, specify this argument') 
+ 
 args = parser.parse_args()
 print(args)
 
@@ -86,25 +88,35 @@ renamed_raw_df = extracted_raw_df.rename(columns=col_name_table)
 renamed_raw_df['年月日'] = pd.to_datetime(renamed_raw_df['年月日']) 
 
 
-daily = renamed_raw_df.set_index('年月日').resample("D").mean()
-weekly = renamed_raw_df.set_index('年月日').resample("W").mean()
-monthly = renamed_raw_df.set_index('年月日').resample("M").mean()
+daily = [
+    renamed_raw_df.set_index('年月日').resample("D").mean(),
+    renamed_raw_df.set_index('年月日').resample('D').agg([min, max])
+]
+
+weekly = [
+    renamed_raw_df.set_index('年月日').resample("W").mean(),
+    renamed_raw_df.set_index('年月日').resample('W').agg([min, max])
+]
+
+monthly = [
+    renamed_raw_df.set_index('年月日').resample("M").mean(),
+    renamed_raw_df.set_index('年月日').resample('M').agg([min, max])
+]
+
+print(daily[0].head(10))
+print(weekly[0].head(10))
+print(monthly[0].head(10))
 
 
-print(daily.head(10))
-print(weekly.head(10))
-print(monthly.head(10))
 
-
-
-granularities = []
+diagrams = []
 
 if (args.granularities.count('daily')):
-    granularities.append(daily)
+    diagrams.append(daily)
 if (args.granularities.count('weekly')):
-    granularities.append(weekly)
+    diagrams.append(weekly)
 if (args.granularities.count('monthly')):
-    granularities.append(monthly)
+    diagrams.append(monthly)
 
 if args.items == ['none']:
     items =[]
@@ -114,7 +126,7 @@ else:
 plt.rcParams['figure.figsize'] = [15, 10]
 
 for itm in items:
-    for gran in granularities:
+    for gran in diagrams:
         if gran is daily:
             title = '{} -- 日次'.format(itm)
             out_dir = daily_output
@@ -125,8 +137,21 @@ for itm in items:
             title = '{} -- 月平均'.format(itm)
             out_dir = monthly_output   
     
-        plt.plot(gran[itm])
+        t = gran[0].index
+        y = gran[0][itm]
+        y_min = y - gran[1][itm]['min']
+        y_max = gran[1][itm]['max'] - y
+        
+        if args.no_errorbars:
+            ecol = 'none'
+        else: 
+            ecol = 'blue'
+            
+        plt.errorbar(t, y, yerr=[y_min, y_max], fmt='o', markersize=4, ecolor=ecol, elinewidth=0.8, color='blue', linestyle='-', capsize=2)
+
+        
         plt.title(title)
+        
 
         os.makedirs(out_dir, exist_ok=True)
         plt.savefig('{}/{}.png'.format(out_dir, itm))
@@ -135,7 +160,7 @@ for itm in items:
 
 
 pair = ['体重(kg)', '全身体脂肪率(％)']
-for gran in granularities:
+for gran in diagrams:
     
     if gran is daily:
         title = '{} : {} -- 日次'.format(pair[0], pair[1])
@@ -151,17 +176,28 @@ for gran in granularities:
     plt.title(title)
     ax1 = fig.add_subplot(111)
     
-    t = gran.index
+    t = gran[0].index
  
     fs = 1.0
-    y1 = gran[pair[0]]
+    y1 = gran[0][pair[0]]
+    y1_min = y1 - gran[1][pair[0]]['min']
+    y1_max = gran[1][pair[0]]['max'] - y1
+    
+    ecol = 'none'
 
-    ln1=ax1.plot(t, y1,'C0', marker='o', label=pair[0])
+    if not(args.no_errorbars):
+        ecol = 'blue'
+    ln1=ax1.errorbar(t, y1, yerr=[y1_min, y1_max], fmt='o', markersize=4, ecolor=ecol, elinewidth=0.8, color='blue', linestyle='-', capsize=2)
 
     ax2 = ax1.twinx()
-    y2 = gran[pair[1]]
+    y2 = gran[0][pair[1]]
+    y2_min = y2 - gran[1][pair[1]]['min']
+    y2_max = gran[1][pair[1]]['max'] - y2
 
-    ln2=ax2.plot(t,y2,'C1', marker='o', label=pair[1])
+    if not(args.no_errorbars):
+        ecol = 'orange'
+    ln2=ax2.errorbar(t, y2, yerr=[y2_min, y2_max], fmt='o', markersize=4, ecolor=ecol, elinewidth=0.8, color='orange', linestyle='-', capsize=2)
+
 
     h1, l1 = ax1.get_legend_handles_labels()
     h2, l2 = ax2.get_legend_handles_labels()
@@ -170,10 +206,13 @@ for gran in granularities:
     ax1.set_xlabel('年月日')
     ax1.set_ylabel(pair[0])
     ax1.grid(True)
+
     ax2.set_ylabel(pair[1])
+    
+    ax1.set_ylim(50, 70)
+    ax2.set_ylim(5, 25)
 
     os.makedirs(out_dir, exist_ok=True)
     plt.savefig('{}/{}-{}.png'.format(out_dir, pair[0], pair[1]))
 #    plt.show()
     plt.close()
-
