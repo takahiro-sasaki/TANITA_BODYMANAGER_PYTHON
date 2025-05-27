@@ -1,4 +1,9 @@
 *.png
 *.csv
 .ipynb_checkpoints/*
+GRAPHV1/*
 GRAPHV1/*/*
+.DS_Store
+bodymanager.pdf
+setup.exe
+.gitignore
